@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Databases
+  identity-db:
+    image: postgres:16-alpine
+    container_name: microbank-identity-db
+    environment:
+      POSTGRES_DB: microbank_identity
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5532:5432"
+    volumes:
+      - identity-db-data:/var/lib/postgresql/data
+    networks:
+      - microbank-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  account-db:
+    image: postgres:16-alpine
+    container_name: microbank-account-db
+    environment:
+      POSTGRES_DB: microbank_account
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5533:5432"
+    volumes:
+      - account-db-data:/var/lib/postgresql/data
+    networks:
+      - microbank-network
+
+  transfer-db:
+    image: postgres:16-alpine
+    container_name: microbank-transfer-db
+    environment:
+      POSTGRES_DB: microbank_transfer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5534:5432"
+    volumes:
+      - transfer-db-data:/var/lib/postgresql/data
+    networks:
+      - microbank-network
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: microbank-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672" # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - microbank-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Identity Service
+  identity-api:
+    build:
+      context: .
+      dockerfile: src/Services/Identity/Dockerfile
+    container_name: microbank-identity-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=identity-db;Port=5432;Database=microbank_identity;Username=postgres;Password=postgres
+      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__Issuer=MicrobankIdentity
+      - JwtSettings__Audience=MicrobankServices
+      - JwtSettings__ExpirationMinutes=60
+    ports:
+      - "5001:80"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    networks:
+      - microbank-network
+    restart: on-failure
+
+  # Account Service
+  account-api:
+    build:
+      context: .
+      dockerfile: src/Services/Account/Dockerfile
+    container_name: microbank-account-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=account-db;Port=5432;Database=microbank_account;Username=postgres;Password=postgres
+      - RabbitMQ__Host=rabbitmq
+      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__Issuer=MicrobankIdentity
+      - JwtSettings__Audience=MicrobankServices
+    ports:
+      - "5002:80"
+    depends_on:
+      - account-db
+      - rabbitmq
+    networks:
+      - microbank-network
+
+  # Transfer Service - SAGA Orchestrator
+  transfer-api:
+    build:
+      context: .
+      dockerfile: src/Services/Transfer/Dockerfile
+    container_name: microbank-transfer-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=transfer-db;Port=5432;Database=microbank_transfer;Username=postgres;Password=postgres
+      - RabbitMQ__Host=rabbitmq
+      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__Issuer=MicrobankIdentity
+      - JwtSettings__Audience=MicrobankServices
+    ports:
+      - "5003:80"
+    depends_on:
+      - transfer-db
+      - rabbitmq
+    networks:
+      - microbank-network
+
+  # Notification Service
+  notification-api:
+    build:
+      context: .
+      dockerfile: src/Services/Notification/Dockerfile
+    container_name: microbank-notification-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5004:80"
+    depends_on:
+      - rabbitmq
+    networks:
+      - microbank-network
+
+networks:
+  microbank-network:
+    driver: bridge
+
+volumes:
+  identity-db-data:
+  account-db-data:
+  transfer-db-data:
+  rabbitmq-data:
