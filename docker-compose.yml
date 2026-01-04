@@ -149,6 +149,27 @@ services:
     networks:
       - microbank-network
 
+  # API Gateway
+  gateway-api:
+    build:
+      context: .
+      dockerfile: src/ApiGateways/Dockerfile
+    container_name: microbank-gateway-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__Issuer=MicrobankIdentity
+      - JwtSettings__Audience=MicrobankServices
+    ports:
+      - "8080:80"
+    depends_on:
+      - identity-api
+      - account-api
+      - transfer-api
+    networks:
+      - microbank-network
+    restart: on-failure
+
 networks:
   microbank-network:
     driver: bridge
