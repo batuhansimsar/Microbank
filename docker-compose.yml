@@ -34,6 +34,11 @@ services:
       - account-db-data:/var/lib/postgresql/data
     networks:
       - microbank-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   transfer-db:
     image: postgres:16-alpine
@@ -48,6 +53,11 @@ services:
       - transfer-db-data:/var/lib/postgresql/data
     networks:
       - microbank-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # RabbitMQ Message Broker
   rabbitmq:
@@ -107,10 +117,13 @@ services:
     ports:
       - "5002:80"
     depends_on:
-      - account-db
-      - rabbitmq
+      account-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
     networks:
       - microbank-network
+    restart: on-failure
 
   # Transfer Service - SAGA Orchestrator
   transfer-api:
@@ -128,10 +141,13 @@ services:
     ports:
       - "5003:80"
     depends_on:
-      - transfer-db
-      - rabbitmq
+      transfer-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
     networks:
       - microbank-network
+    restart: on-failure
 
   # Notification Service
   notification-api:
