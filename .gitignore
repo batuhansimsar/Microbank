@@ -1,9 +1,13 @@
-# Build artifacts
+# Build artifacts## .NET
 bin/
 obj/
-out/
 *.user
 *.suo
+
+## Environment Variables (SECURITY)
+.env
+.env.local
+.env.production
 *.cache
 
 # NuGet Packages

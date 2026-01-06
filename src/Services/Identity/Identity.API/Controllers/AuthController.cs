@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FluentValidation;
 using Identity.API.Data;
 using Identity.API.DTOs;
 using Identity.API.Models;
@@ -15,27 +16,33 @@ public class AuthController : ControllerBase
     private readonly IPasswordHasher _passwordHasher;
     private readonly ITokenService _tokenService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IValidator<RegisterRequest> _registerValidator;
+    private readonly IValidator<LoginRequest> _loginValidator;
 
     public AuthController(
         IdentityDbContext context,
         IPasswordHasher passwordHasher,
         ITokenService tokenService,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        IValidator<RegisterRequest> registerValidator,
+        IValidator<LoginRequest> loginValidator)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _tokenService = tokenService;
         _logger = logger;
+        _registerValidator = registerValidator;
+        _loginValidator = loginValidator;
     }
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Email) || 
-            string.IsNullOrWhiteSpace(request.Password) || 
-            string.IsNullOrWhiteSpace(request.FullName))
+        // Manual FluentValidation for .NET 8 compatibility
+        var validationResult = await _registerValidator.ValidateAsync(request);
+        if (!validationResult.IsValid)
         {
-            return BadRequest(new { error = "All fields are required" });
+            return BadRequest(new { errors = validationResult.Errors.Select(e => new { field = e.PropertyName, message = e.ErrorMessage }) });
         }
 
         var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
@@ -64,9 +71,11 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        // Manual FluentValidation for .NET 8 compatibility
+        var validationResult = await _loginValidator.ValidateAsync(request);
+        if (!validationResult.IsValid)
         {
-            return BadRequest(new { error = "Email and password are required" });
+            return BadRequest(new { errors = validationResult.Errors.Select(e => new { field = e.PropertyName, message = e.ErrorMessage }) });
         }
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);

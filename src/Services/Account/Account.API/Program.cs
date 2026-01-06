@@ -2,11 +2,13 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using FluentValidation;
 using Common.Logging;
 using EventBus.RabbitMQ;
 using Account.API.Data;
 using Account.API.Events;
 using Account.API.EventHandlers;
+using Account.API.Middleware;
 
 // Fix PostgreSQL DateTime UTC issue
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -20,6 +22,13 @@ builder.Host.UseCustomSerilog("Account.API");
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// FluentValidation
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+// Global Exception Handler
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 // Database
 builder.Services.AddDbContext<AccountDbContext>(options =>
@@ -67,6 +76,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Exception handler (must be first)
+app.UseExceptionHandler();
 
 app.UseAuthentication();
 app.UseAuthorization();

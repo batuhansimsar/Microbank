@@ -1,4 +1,5 @@
 using EventBus.RabbitMQ;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,34 +17,34 @@ public class TransfersController : ControllerBase
     private readonly TransferDbContext _context;
     private readonly IEventBus _eventBus;
     private readonly ILogger<TransfersController> _logger;
+    private readonly IValidator<TransferRequest> _transferValidator;
 
     public TransfersController(
         TransferDbContext context,
         IEventBus eventBus,
-        ILogger<TransfersController> logger)
+        ILogger<TransfersController> logger,
+        IValidator<TransferRequest> transferValidator)
     {
         _context = context;
         _eventBus = eventBus;
         _logger = logger;
+        _transferValidator = transferValidator;
     }
 
     [HttpPost]
     public async Task<IActionResult> InitiateTransfer([FromBody] TransferRequest request)
     {
+        // Manual FluentValidation for .NET 8 compatibility
+        var validationResult = await _transferValidator.ValidateAsync(request);
+        if (!validationResult.IsValid)
+        {
+            return BadRequest(new { errors = validationResult.Errors.Select(e => new { field = e.PropertyName, message = e.ErrorMessage }) });
+        }
+
         var userIdClaim = User.FindFirst("userId")?.Value;
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
         {
             return Unauthorized(new { error = "Invalid authentication token" });
-        }
-
-        if (request.FromAccountId == request.ToAccountId)
-        {
-            return BadRequest(new { error = "Cannot transfer to the same account" });
-        }
-
-        if (request.Amount <= 0)
-        {
-            return BadRequest(new { error = "Amount must be greater than zero" });
         }
 
         // Create transfer record (SAGA Step 1)
@@ -86,10 +87,22 @@ public class TransfersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetTransfer(Guid id)
     {
+        var userIdClaim = User.FindFirst("userId")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Invalid authentication token" });
+        }
+
         var transfer = await _context.Transfers.FindAsync(id);
         if (transfer == null)
         {
             return NotFound(new { error = "Transfer not found" });
+        }
+
+        // Authorization check: ensure user can only view their own transfers
+        if (transfer.InitiatedBy != userId)
+        {
+            return NotFound(new { error = "Transfer not found" }); // Return NotFound for privacy
         }
 
         return Ok(new
@@ -109,6 +122,19 @@ public class TransfersController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserTransfers(Guid userId)
     {
+        // Authorization: Verify authenticated user matches requested userId
+        var userIdClaim = User.FindFirst("userId")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var authenticatedUserId))
+        {
+            return Unauthorized(new { error = "Invalid authentication token" });
+        }
+
+        // Users can only view their own transfers
+        if (authenticatedUserId != userId)
+        {
+            return Forbid(); // Return 403 Forbidden
+        }
+
         var transfers = await _context.Transfers
             .Where(t => t.InitiatedBy == userId)
             .OrderByDescending(t => t.InitiatedAt)

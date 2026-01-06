@@ -82,6 +82,19 @@ public class AccountsController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserAccounts(Guid userId)
     {
+        // Authorization: Verify authenticated user matches requested userId
+        var userIdClaim = User.FindFirst("userId")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var authenticatedUserId))
+        {
+            return Unauthorized(new { error = "Invalid authentication token" });
+        }
+
+        // Users can only view their own accounts
+        if (authenticatedUserId != userId)
+        {
+            return Forbid(); // Return 403 Forbidden
+        }
+
         var accounts = await _context.Accounts
             .Where(a => a.UserId == userId)
             .ToListAsync();
@@ -122,7 +135,10 @@ public class AccountsController : ControllerBase
 
     private string GenerateAccountNumber()
     {
-        var random = new Random();
-        return $"TR{random.Next(10, 99)}{random.Next(1000, 9999)}{random.Next(1000, 9999)}{random.Next(1000, 9999)}";
+        // Thread-safe random generation with timestamp for uniqueness
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var randomPart1 = Random.Shared.Next(100000, 999999);
+        var randomPart2 = Random.Shared.Next(100000, 999999);
+        return $"TR{timestamp % 100:D2}{randomPart1:D6}{randomPart2:D6}";
     }
 }
