@@ -8,7 +8,7 @@ WORKDIR /src
 # Copy shared libraries
 COPY ["src/BuildingBlocks/Common/Common.csproj", "BuildingBlocks/Common/"]
 COPY ["src/BuildingBlocks/Common.Logging/Common.Logging.csproj", "BuildingBlocks/Common.Logging/"]
-COPY ["src/BuildingBlocks/EventBus.RabbitMQ/EventBus.RabbitMQ.csproj", "BuildingBlocks/EventBus.RabbitMQ/"]
+COPY ["src/BuildingBlocks/EventBus.MassTransit/EventBus.MassTransit.csproj", "BuildingBlocks/EventBus.MassTransit/"]
 
 # Copy Notification project
 COPY ["src/Services/Notification/Notification.API/Notification.API.csproj", "Services/Notification/Notification.API/"]
@@ -19,7 +19,7 @@ RUN dotnet restore "Services/Notification/Notification.API/Notification.API.cspr
 # Copy all source code
 COPY src/BuildingBlocks/Common/ BuildingBlocks/Common/
 COPY src/BuildingBlocks/Common.Logging/ BuildingBlocks/Common.Logging/
-COPY src/BuildingBlocks/EventBus.RabbitMQ/ BuildingBlocks/EventBus.RabbitMQ/
+COPY src/BuildingBlocks/EventBus.MassTransit/ BuildingBlocks/EventBus.MassTransit/
 COPY src/Services/Notification/Notification.API/ Services/Notification/Notification.API/
 
 # Build

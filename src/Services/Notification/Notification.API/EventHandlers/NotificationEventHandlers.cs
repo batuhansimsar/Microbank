@@ -1,24 +1,29 @@
-using EventBus.RabbitMQ;
-using Notification.API.Events;
+using EventBus.MassTransit.Contracts;
+using MassTransit;
 
 namespace Notification.API.EventHandlers;
 
-public class TransferCompletedEventHandler : IIntegrationEventHandler<TransferCompletedEvent>
+/// <summary>
+/// Handles transfer completion notifications
+/// </summary>
+public class TransferCompletedConsumer : IConsumer<ITransferCompleted>
 {
-    private readonly ILogger<TransferCompletedEventHandler> _logger;
+    private readonly ILogger<TransferCompletedConsumer> _logger;
 
-    public TransferCompletedEventHandler(ILogger<TransferCompletedEventHandler> logger)
+    public TransferCompletedConsumer(ILogger<TransferCompletedConsumer> logger)
     {
         _logger = logger;
     }
 
-    public async Task HandleAsync(TransferCompletedEvent @event)
+    public async Task Consume(ConsumeContext<ITransferCompleted> context)
     {
+        var message = context.Message;
+        
         _logger.LogInformation("📧 NOTIFICATION: Transfer SUCCESSFUL!");
-        _logger.LogInformation("   Transfer ID: {TransferId}", @event.TransferId);
-        _logger.LogInformation("   Amount: {Amount} {Currency}", @event.Amount, @event.Currency);
-        _logger.LogInformation("   From Account: {FromAccountId}", @event.FromAccountId);
-        _logger.LogInformation("   To Account: {ToAccountId}", @event.ToAccountId);
+        _logger.LogInformation("   Transfer ID: {TransferId}", message.TransferId);
+        _logger.LogInformation("   Amount: {Amount} {Currency}", message.Amount, message.Currency);
+        _logger.LogInformation("   From Account: {FromAccountId}", message.FromAccountId);
+        _logger.LogInformation("   To Account: {ToAccountId}", message.ToAccountId);
 
         // Mock: Send email/SMS to both parties
         _logger.LogInformation("📨 Sending success email to sender...");
@@ -29,22 +34,27 @@ public class TransferCompletedEventHandler : IIntegrationEventHandler<TransferCo
     }
 }
 
-public class TransferFailedEventHandler : IIntegrationEventHandler<TransferFailedEvent>
+/// <summary>
+/// Handles transfer failure notifications
+/// </summary>
+public class TransferFailedConsumer : IConsumer<ITransferFailed>
 {
-    private readonly ILogger<TransferFailedEventHandler> _logger;
+    private readonly ILogger<TransferFailedConsumer> _logger;
 
-    public TransferFailedEventHandler(ILogger<TransferFailedEventHandler> logger)
+    public TransferFailedConsumer(ILogger<TransferFailedConsumer> logger)
     {
         _logger = logger;
     }
 
-    public async Task HandleAsync(TransferFailedEvent @event)
+    public async Task Consume(ConsumeContext<ITransferFailed> context)
     {
+        var message = context.Message;
+        
         _logger.LogWarning("⚠️  NOTIFICATION: Transfer FAILED!");
-        _logger.LogWarning("   Transfer ID: {TransferId}", @event.TransferId);
-        _logger.LogWarning("   Amount: {Amount}", @event.Amount);
-        _logger.LogWarning("   Reason: {Reason}", @event.Reason);
-        _logger.LogWarning("   From Account: {FromAccountId}", @event.FromAccountId);
+        _logger.LogWarning("   Transfer ID: {TransferId}", message.TransferId);
+        _logger.LogWarning("   Amount: {Amount}", message.Amount);
+        _logger.LogWarning("   Reason: {Reason}", message.Reason);
+        _logger.LogWarning("   From Account: {FromAccountId}", message.FromAccountId);
 
         // Mock: Send failure notification to sender
         _logger.LogInformation("📨 Sending failure email to sender...");
