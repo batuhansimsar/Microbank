@@ -1,54 +1,59 @@
 using Account.API.Data;
-using Account.API.Events;
 using Account.Domain.Entities;
-using EventBus.RabbitMQ;
+using EventBus.MassTransit.Contracts;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace Account.API.EventHandlers;
 
-public class DebitAccountRequestedEventHandler : IIntegrationEventHandler<DebitAccountRequestedEvent>
+/// <summary>
+/// Handles debit account requests from Transfer Service
+/// </summary>
+public class DebitAccountRequestedConsumer : IConsumer<IDebitAccountRequested>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBus _eventBus;
-    private readonly ILogger<DebitAccountRequestedEventHandler> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<DebitAccountRequestedConsumer> _logger;
 
-    public DebitAccountRequestedEventHandler(
+    public DebitAccountRequestedConsumer(
         IServiceProvider serviceProvider,
-        IEventBus eventBus,
-        ILogger<DebitAccountRequestedEventHandler> logger)
+        IPublishEndpoint publishEndpoint,
+        ILogger<DebitAccountRequestedConsumer> logger)
     {
         _serviceProvider = serviceProvider;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
-    public async Task HandleAsync(DebitAccountRequestedEvent @event)
+    public async Task Consume(ConsumeContext<IDebitAccountRequested> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
-        var account = await context.Accounts.FindAsync(@event.AccountId);
+        var account = await dbContext.Accounts.FindAsync(message.AccountId);
         
         if (account == null)
         {
-            _logger.LogWarning("Account not found: {AccountId}", @event.AccountId);
-            await _eventBus.PublishAsync(new AccountOperationFailedEvent
+            _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
+            await _publishEndpoint.Publish<IAccountOperationFailed>(new
             {
-                TransferId = @event.TransferId,
-                AccountId = @event.AccountId,
+                message.TransferId,
+                message.AccountId,
                 Reason = "Account not found",
                 OperationType = "Debit"
             });
             return;
         }
 
-        if (account.Balance < @event.Amount)
+        if (account.Balance < message.Amount)
         {
-            _logger.LogWarning("Insufficient balance for account: {AccountId}", @event.AccountId);
-            await _eventBus.PublishAsync(new AccountOperationFailedEvent
+            _logger.LogWarning("Insufficient balance for account: {AccountId}", message.AccountId);
+            await _publishEndpoint.Publish<IAccountOperationFailed>(new
             {
-                TransferId = @event.TransferId,
-                AccountId = @event.AccountId,
+                message.TransferId,
+                message.AccountId,
                 Reason = "Insufficient balance",
                 OperationType = "Debit"
             });
@@ -56,63 +61,68 @@ public class DebitAccountRequestedEventHandler : IIntegrationEventHandler<DebitA
         }
 
         // Debit the account
-        account.Balance -= @event.Amount;
+        account.Balance -= message.Amount;
         
         var transaction = new Transaction
         {
             Id = Guid.NewGuid(),
             AccountId = account.Id,
             Type = TransactionType.Debit,
-            Amount = @event.Amount,
-            TransferId = @event.TransferId,
-            Description = $"Transfer debit - Transfer ID: {@event.TransferId}",
+            Amount = message.Amount,
+            TransferId = message.TransferId,
+            Description = $"Transfer debit - Transfer ID: {message.TransferId}",
             Timestamp = DateTime.UtcNow
         };
 
-        context.Transactions.Add(transaction);
-        await context.SaveChangesAsync();
+        dbContext.Transactions.Add(transaction);
+        await dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, @event.Amount);
+        _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
 
-        await _eventBus.PublishAsync(new AccountDebitedEvent
+        await _publishEndpoint.Publish<IAccountDebited>(new
         {
-            TransferId = @event.TransferId,
-            AccountId = @event.AccountId,
-            Amount = @event.Amount
+            message.TransferId,
+            message.AccountId,
+            message.Amount
         });
     }
 }
 
-public class CreditAccountRequestedEventHandler : IIntegrationEventHandler<CreditAccountRequestedEvent>
+/// <summary>
+/// Handles credit account requests from Transfer Service
+/// </summary>
+public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBus _eventBus;
-    private readonly ILogger<CreditAccountRequestedEventHandler> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<CreditAccountRequestedConsumer> _logger;
 
-    public CreditAccountRequestedEventHandler(
+    public CreditAccountRequestedConsumer(
         IServiceProvider serviceProvider,
-        IEventBus eventBus,
-        ILogger<CreditAccountRequestedEventHandler> logger)
+        IPublishEndpoint publishEndpoint,
+        ILogger<CreditAccountRequestedConsumer> logger)
     {
         _serviceProvider = serviceProvider;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
-    public async Task HandleAsync(CreditAccountRequestedEvent @event)
+    public async Task Consume(ConsumeContext<ICreditAccountRequested> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
-        var account = await context.Accounts.FindAsync(@event.AccountId);
+        var account = await dbContext.Accounts.FindAsync(message.AccountId);
         
         if (account == null)
         {
-            _logger.LogWarning("Account not found: {AccountId}", @event.AccountId);
-            await _eventBus.PublishAsync(new AccountOperationFailedEvent
+            _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
+            await _publishEndpoint.Publish<IAccountOperationFailed>(new
             {
-                TransferId = @event.TransferId,
-                AccountId = @event.AccountId,
+                message.TransferId,
+                message.AccountId,
                 Reason = "Account not found",
                 OperationType = "Credit"
             });
@@ -120,74 +130,79 @@ public class CreditAccountRequestedEventHandler : IIntegrationEventHandler<Credi
         }
 
         // Credit the account
-        account.Balance += @event.Amount;
+        account.Balance += message.Amount;
         
         var transaction = new Transaction
         {
             Id = Guid.NewGuid(),
             AccountId = account.Id,
             Type = TransactionType.Credit,
-            Amount = @event.Amount,
-            TransferId = @event.TransferId,
-            Description = $"Transfer credit - Transfer ID: {@event.TransferId}",
+            Amount = message.Amount,
+            TransferId = message.TransferId,
+            Description = $"Transfer credit - Transfer ID: {message.TransferId}",
             Timestamp = DateTime.UtcNow
         };
 
-        context.Transactions.Add(transaction);
-        await context.SaveChangesAsync();
+        dbContext.Transactions.Add(transaction);
+        await dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("Account credited: {AccountId}, Amount: {Amount}", account.Id, @event.Amount);
+        _logger.LogInformation("Account credited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
 
-        await _eventBus.PublishAsync(new AccountCreditedEvent
+        await _publishEndpoint.Publish<IAccountCredited>(new
         {
-            TransferId = @event.TransferId,
-            AccountId = @event.AccountId,
-            Amount = @event.Amount
+            message.TransferId,
+            message.AccountId,
+            message.Amount
         });
     }
 }
 
-public class CompensateDebitEventHandler : IIntegrationEventHandler<CompensateDebitEvent>
+/// <summary>
+/// Handles compensation events to reverse failed transfers
+/// </summary>
+public class CompensateDebitConsumer : IConsumer<ICompensateDebit>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<CompensateDebitEventHandler> _logger;
+    private readonly ILogger<CompensateDebitConsumer> _logger;
 
-    public CompensateDebitEventHandler(
+    public CompensateDebitConsumer(
         IServiceProvider serviceProvider,
-        ILogger<CompensateDebitEventHandler> logger)
+        ILogger<CompensateDebitConsumer> logger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
-    public async Task HandleAsync(CompensateDebitEvent @event)
+    public async Task Consume(ConsumeContext<ICompensateDebit> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
-        var account = await context.Accounts.FindAsync(@event.AccountId);
+        var account = await dbContext.Accounts.FindAsync(message.AccountId);
         
         if (account != null)
         {
             // Reverse the debit (credit it back)
-            account.Balance += @event.Amount;
+            account.Balance += message.Amount;
             
             var transaction = new Transaction
             {
                 Id = Guid.NewGuid(),
                 AccountId = account.Id,
                 Type = TransactionType.Credit,
-                Amount = @event.Amount,
-                TransferId = @event.TransferId,
-                Description = $"Compensation for failed transfer - Transfer ID: {@event.TransferId}",
+                Amount = message.Amount,
+                TransferId = message.TransferId,
+                Description = $"Compensation for failed transfer - Transfer ID: {message.TransferId}",
                 Timestamp = DateTime.UtcNow
             };
 
-            context.Transactions.Add(transaction);
-            await context.SaveChangesAsync();
+            dbContext.Transactions.Add(transaction);
+            await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Debit compensated for account: {AccountId}, Amount: {Amount}", 
-                account.Id, @event.Amount);
+                account.Id, message.Amount);
         }
     }
 }

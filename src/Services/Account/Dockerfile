@@ -8,7 +8,7 @@ WORKDIR /src
 # Copy shared libraries
 COPY ["src/BuildingBlocks/Common/Common.csproj", "BuildingBlocks/Common/"]
 COPY ["src/BuildingBlocks/Common.Logging/Common.Logging.csproj", "BuildingBlocks/Common.Logging/"]
-COPY ["src/BuildingBlocks/EventBus.RabbitMQ/EventBus.RabbitMQ.csproj", "BuildingBlocks/EventBus.RabbitMQ/"]
+COPY ["src/BuildingBlocks/EventBus.MassTransit/EventBus.MassTransit.csproj", "BuildingBlocks/EventBus.MassTransit/"]
 
 # Copy Account projects
 COPY ["src/Services/Account/Account.Domain/Account.Domain.csproj", "Services/Account/Account.Domain/"]
@@ -20,7 +20,7 @@ RUN dotnet restore "Services/Account/Account.API/Account.API.csproj"
 # Copy all source code
 COPY src/BuildingBlocks/Common/ BuildingBlocks/Common/
 COPY src/BuildingBlocks/Common.Logging/ BuildingBlocks/Common.Logging/
-COPY src/BuildingBlocks/EventBus.RabbitMQ/ BuildingBlocks/EventBus.RabbitMQ/
+COPY src/BuildingBlocks/EventBus.MassTransit/ BuildingBlocks/EventBus.MassTransit/
 COPY src/Services/Account/Account.Domain/ Services/Account/Account.Domain/
 COPY src/Services/Account/Account.API/ Services/Account/Account.API/
 

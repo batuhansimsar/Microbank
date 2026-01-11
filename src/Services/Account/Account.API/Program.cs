@@ -4,9 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using FluentValidation;
 using Common.Logging;
-using EventBus.RabbitMQ;
+using EventBus.MassTransit;
 using Account.API.Data;
-using Account.API.Events;
 using Account.API.EventHandlers;
 using Account.API.Middleware;
 
@@ -34,14 +33,14 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<AccountDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Event Bus
-var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-builder.Services.AddRabbitMQEventBus(rabbitMqHost);
-
-// Event Handlers
-builder.Services.AddScoped<DebitAccountRequestedEventHandler>();
-builder.Services.AddScoped<CreditAccountRequestedEventHandler>();
-builder.Services.AddScoped<CompensateDebitEventHandler>();
+// MassTransit with RabbitMQ
+builder.Services.AddMassTransitWithRabbitMQ(builder.Configuration, cfg =>
+{
+    // Register all consumers
+    cfg.AddConsumer<DebitAccountRequestedConsumer>();
+    cfg.AddConsumer<CreditAccountRequestedConsumer>();
+    cfg.AddConsumer<CompensateDebitConsumer>();
+});
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -90,12 +89,6 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
     db.Database.Migrate();
-    
-    // Subscribe to events
-    var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-    eventBus.Subscribe<DebitAccountRequestedEvent, DebitAccountRequestedEventHandler>();
-    eventBus.Subscribe<CreditAccountRequestedEvent, CreditAccountRequestedEventHandler>();
-    eventBus.Subscribe<CompensateDebitEvent, CompensateDebitEventHandler>();
 }
 
 app.Run();
