@@ -4,9 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using FluentValidation;
 using Common.Logging;
-using EventBus.RabbitMQ;
+using EventBus.MassTransit;
 using Transfer.API.Data;
-using Transfer.API.Events;
 using Transfer.API.EventHandlers;
 using Transfer.API.Middleware;
 
@@ -34,14 +33,14 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<TransferDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Event Bus
-var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-builder.Services.AddRabbitMQEventBus(rabbitMqHost);
-
-// Event Handlers (SAGA Orchestrator)
-builder.Services.AddScoped<AccountDebitedEventHandler>();
-builder.Services.AddScoped<AccountCreditedEventHandler>();
-builder.Services.AddScoped<AccountOperationFailedEventHandler>();
+// MassTransit with RabbitMQ (SAGA Orchestrator)
+builder.Services.AddMassTransitWithRabbitMQ(builder.Configuration, cfg =>
+{
+    // Register all SAGA orchestrator consumers
+    cfg.AddConsumer<AccountDebitedConsumer>();
+    cfg.AddConsumer<AccountCreditedConsumer>();
+    cfg.AddConsumer<AccountOperationFailedConsumer>();
+});
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -90,12 +89,6 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
     db.Database.Migrate();
-    
-    // Subscribe to events (SAGA Orchestrator)
-    var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-    eventBus.Subscribe<AccountDebitedEvent, AccountDebitedEventHandler>();
-    eventBus.Subscribe<AccountCreditedEvent, AccountCreditedEventHandler>();
-    eventBus.Subscribe<AccountOperationFailedEvent, AccountOperationFailedEventHandler>();
 }
 
 app.Run();

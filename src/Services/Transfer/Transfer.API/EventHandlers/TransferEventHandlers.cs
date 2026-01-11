@@ -1,7 +1,7 @@
-using EventBus.RabbitMQ;
+using EventBus.MassTransit.Contracts;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Transfer.API.Data;
-using Transfer.API.Events;
 using Transfer.Domain.Entities;
 
 namespace Transfer.API.EventHandlers;
@@ -9,46 +9,48 @@ namespace Transfer.API.EventHandlers;
 /// <summary>
 /// SAGA Step 2: Account debited successfully, now credit the receiver
 /// </summary>
-public class AccountDebitedEventHandler : IIntegrationEventHandler<AccountDebitedEvent>
+public class AccountDebitedConsumer : IConsumer<IAccountDebited>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBus _eventBus;
-    private readonly ILogger<AccountDebitedEventHandler> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<AccountDebitedConsumer> _logger;
 
-    public AccountDebitedEventHandler(
+    public AccountDebitedConsumer(
         IServiceProvider serviceProvider,
-        IEventBus eventBus,
-        ILogger<AccountDebitedEventHandler> logger)
+        IPublishEndpoint publishEndpoint,
+        ILogger<AccountDebitedConsumer> logger)
     {
         _serviceProvider = serviceProvider;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
-    public async Task HandleAsync(AccountDebitedEvent @event)
+    public async Task Consume(ConsumeContext<IAccountDebited> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
 
-        var transfer = await context.Transfers.FindAsync(@event.TransferId);
+        var transfer = await dbContext.Transfers.FindAsync(message.TransferId);
         if (transfer == null)
         {
-            _logger.LogWarning("Transfer not found: {TransferId}", @event.TransferId);
+            _logger.LogWarning("Transfer not found: {TransferId}", message.TransferId);
             return;
         }
 
         // Update SAGA state
         transfer.Status = TransferStatus.DebitSuccessful;
-        await context.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
 
         _logger.LogInformation("Transfer {TransferId}: Debit successful, requesting credit", transfer.Id);
 
         // Publish credit request
-        await _eventBus.PublishAsync(new CreditAccountRequestedEvent
+        await _publishEndpoint.Publish<ICreditAccountRequested>(new
         {
             TransferId = transfer.Id,
             AccountId = transfer.ToAccountId,
-            Amount = transfer.Amount
+            transfer.Amount
         });
     }
 }
@@ -56,50 +58,52 @@ public class AccountDebitedEventHandler : IIntegrationEventHandler<AccountDebite
 /// <summary>
 /// SAGA Step 3: Account credited successfully, transfer complete!
 /// </summary>
-public class AccountCreditedEventHandler : IIntegrationEventHandler<AccountCreditedEvent>
+public class AccountCreditedConsumer : IConsumer<IAccountCredited>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBus _eventBus;
-    private readonly ILogger<AccountCreditedEventHandler> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<AccountCreditedConsumer> _logger;
 
-    public AccountCreditedEventHandler(
+    public AccountCreditedConsumer(
         IServiceProvider serviceProvider,
-        IEventBus eventBus,
-        ILogger<AccountCreditedEventHandler> logger)
+        IPublishEndpoint publishEndpoint,
+        ILogger<AccountCreditedConsumer> logger)
     {
         _serviceProvider = serviceProvider;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
-    public async Task HandleAsync(AccountCreditedEvent @event)
+    public async Task Consume(ConsumeContext<IAccountCredited> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
 
-        var transfer = await context.Transfers.FindAsync(@event.TransferId);
+        var transfer = await dbContext.Transfers.FindAsync(message.TransferId);
         if (transfer == null)
         {
-            _logger.LogWarning("Transfer not found: {TransferId}", @event.TransferId);
+            _logger.LogWarning("Transfer not found: {TransferId}", message.TransferId);
             return;
         }
 
         // SAGA COMPLETE!
         transfer.Status = TransferStatus.Completed;
         transfer.CompletedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
 
         _logger.LogInformation("Transfer {TransferId}: COMPLETED! {Amount} {Currency} transferred", 
             transfer.Id, transfer.Amount, transfer.Currency);
 
         // Notify success
-        await _eventBus.PublishAsync(new TransferCompletedEvent
+        await _publishEndpoint.Publish<ITransferCompleted>(new
         {
             TransferId = transfer.Id,
             FromAccountId = transfer.FromAccountId,
             ToAccountId = transfer.ToAccountId,
-            Amount = transfer.Amount,
-            Currency = transfer.Currency
+            transfer.Amount,
+            transfer.Currency
         });
     }
 }
@@ -107,64 +111,66 @@ public class AccountCreditedEventHandler : IIntegrationEventHandler<AccountCredi
 /// <summary>
 /// SAGA Compensation: Something failed, handle it
 /// </summary>
-public class AccountOperationFailedEventHandler : IIntegrationEventHandler<AccountOperationFailedEvent>
+public class AccountOperationFailedConsumer : IConsumer<IAccountOperationFailed>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBus _eventBus;
-    private readonly ILogger<AccountOperationFailedEventHandler> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<AccountOperationFailedConsumer> _logger;
 
-    public AccountOperationFailedEventHandler(
+    public AccountOperationFailedConsumer(
         IServiceProvider serviceProvider,
-        IEventBus eventBus,
-        ILogger<AccountOperationFailedEventHandler> logger)
+        IPublishEndpoint publishEndpoint,
+        ILogger<AccountOperationFailedConsumer> logger)
     {
         _serviceProvider = serviceProvider;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
-    public async Task HandleAsync(AccountOperationFailedEvent @event)
+    public async Task Consume(ConsumeContext<IAccountOperationFailed> context)
     {
+        var message = context.Message;
+        
         using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
 
-        var transfer = await context.Transfers.FindAsync(@event.TransferId);
+        var transfer = await dbContext.Transfers.FindAsync(message.TransferId);
         if (transfer == null)
         {
-            _logger.LogWarning("Transfer not found: {TransferId}", @event.TransferId);
+            _logger.LogWarning("Transfer not found: {TransferId}", message.TransferId);
             return;
         }
 
         _logger.LogWarning("Transfer {TransferId}: Operation failed - {Reason}", 
-            transfer.Id, @event.Reason);
+            transfer.Id, message.Reason);
 
         // If credit failed but debit was successful, compensate!
-        if (@event.OperationType == "Credit" && transfer.Status == TransferStatus.DebitSuccessful)
+        if (message.OperationType == "Credit" && transfer.Status == TransferStatus.DebitSuccessful)
         {
             _logger.LogInformation("Transfer {TransferId}: Compensating debit", transfer.Id);
             
-            await _eventBus.PublishAsync(new CompensateDebitEvent
+            await _publishEndpoint.Publish<ICompensateDebit>(new
             {
                 TransferId = transfer.Id,
                 AccountId = transfer.FromAccountId,
-                Amount = transfer.Amount
+                transfer.Amount
             });
         }
 
         // Mark transfer as failed
         transfer.Status = TransferStatus.Failed;
         transfer.CompletedAt = DateTime.UtcNow;
-        transfer.FailureReason = @event.Reason;
-        await context.SaveChangesAsync();
+        transfer.FailureReason = message.Reason;
+        await dbContext.SaveChangesAsync();
 
         // Notify failure
-        await _eventBus.PublishAsync(new TransferFailedEvent
+        await _publishEndpoint.Publish<ITransferFailed>(new
         {
             TransferId = transfer.Id,
             FromAccountId = transfer.FromAccountId,
             ToAccountId = transfer.ToAccountId,
-            Amount = transfer.Amount,
-            Reason = @event.Reason
+            transfer.Amount,
+            Reason = message.Reason
         });
     }
 }

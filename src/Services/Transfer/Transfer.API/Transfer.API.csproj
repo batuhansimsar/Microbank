@@ -23,7 +23,7 @@
     <ProjectReference Include="..\Transfer.Domain\Transfer.Domain.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\Common\Common.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\Common.Logging\Common.Logging.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\EventBus.RabbitMQ\EventBus.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\EventBus.MassTransit\EventBus.MassTransit.csproj" />
   </ItemGroup>
 
 </Project>

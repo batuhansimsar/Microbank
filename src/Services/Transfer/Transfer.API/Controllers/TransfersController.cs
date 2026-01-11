@@ -1,10 +1,10 @@
-using EventBus.RabbitMQ;
+using EventBus.MassTransit.Contracts;
 using FluentValidation;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Transfer.API.Data;
-using Transfer.API.Events;
 using Transfer.Domain.Entities;
 
 namespace Transfer.API.Controllers;
@@ -15,18 +15,18 @@ namespace Transfer.API.Controllers;
 public class TransfersController : ControllerBase
 {
     private readonly TransferDbContext _context;
-    private readonly IEventBus _eventBus;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly ILogger<TransfersController> _logger;
     private readonly IValidator<TransferRequest> _transferValidator;
 
     public TransfersController(
         TransferDbContext context,
-        IEventBus eventBus,
+        IPublishEndpoint publishEndpoint,
         ILogger<TransfersController> logger,
         IValidator<TransferRequest> transferValidator)
     {
         _context = context;
-        _eventBus = eventBus;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
         _transferValidator = transferValidator;
     }
@@ -67,11 +67,11 @@ public class TransfersController : ControllerBase
             transfer.Id, transfer.Amount, transfer.Currency);
 
         // Start SAGA: Request debit
-        await _eventBus.PublishAsync(new DebitAccountRequestedEvent
+        await _publishEndpoint.Publish<IDebitAccountRequested>(new
         {
             TransferId = transfer.Id,
             AccountId = transfer.FromAccountId,
-            Amount = transfer.Amount
+            transfer.Amount
         });
 
         return Ok(new
