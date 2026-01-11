@@ -7,7 +7,7 @@ A production-ready microservices-based banking application built with .NET 8, im
 This project demonstrates a complete microservices architecture with:
 
 - **4 Microservices**: Identity, Account, Transfer (SAGA Orchestrator), Notification
-- **Event-Driven Communication**: RabbitMQ message broker
+- **Event-Driven Communication**: MassTransit with RabbitMQ message broker
 - **Database-Per-Service**: 3 PostgreSQL databases
 - **SAGA Pattern**: Orchestration-based distributed transactions with compensation
 - **Containerization**: Docker & Docker Compose
@@ -287,6 +287,7 @@ docker-compose down -v
 - **Backend**: .NET 8, ASP.NET Core
 - **Database**: PostgreSQL 16
 - **Message Broker**: RabbitMQ 3
+- **Service Bus**: MassTransit 8
 - **ORM**: Entity Framework Core 8
 - **Logging**: Serilog
 - **Authentication**: JWT Bearer
