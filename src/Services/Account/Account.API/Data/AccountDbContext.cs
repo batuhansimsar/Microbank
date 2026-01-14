@@ -26,6 +26,9 @@ public class AccountDbContext : DbContext
             entity.Property(e => e.Currency).HasMaxLength(3);
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
             
+            // Optimistic concurrency token
+            entity.Property(e => e.RowVersion).IsRowVersion();
+            
             entity.HasMany(e => e.Transactions)
                 .WithOne(t => t.Account)
                 .HasForeignKey(t => t.AccountId)

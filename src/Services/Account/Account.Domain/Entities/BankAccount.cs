@@ -8,6 +8,9 @@ public class BankAccount
     public decimal Balance { get; set; }
     public string Currency { get; set; } = "TRY";
     public DateTime CreatedAt { get; set; }
+    
+    // Optimistic concurrency control
+    public byte[]? RowVersion { get; set; }
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 }
