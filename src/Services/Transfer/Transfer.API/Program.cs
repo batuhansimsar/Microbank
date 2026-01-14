@@ -4,10 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using FluentValidation;
 using Common.Logging;
-using EventBus.MassTransit;
+using MassTransit;
 using Transfer.API.Data;
-using Transfer.API.EventHandlers;
 using Transfer.API.Middleware;
+using Transfer.Domain.Saga;
 
 // Fix PostgreSQL DateTime UTC issue
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -33,13 +33,35 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<TransferDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// MassTransit with RabbitMQ (SAGA Orchestrator)
-builder.Services.AddMassTransitWithRabbitMQ(builder.Configuration, cfg =>
+// MassTransit with RabbitMQ and Saga State Machine
+builder.Services.AddMassTransit(x =>
 {
-    // Register all SAGA orchestrator consumers
-    cfg.AddConsumer<AccountDebitedConsumer>();
-    cfg.AddConsumer<AccountCreditedConsumer>();
-    cfg.AddConsumer<AccountOperationFailedConsumer>();
+    // Register Saga State Machine with InMemory persistence (for testing/demo)
+    x.AddSagaStateMachine<TransferStateMachine, TransferSagaState>()
+        .InMemoryRepository();
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
+        
+        cfg.Host(rabbitMqHost, "/", h =>
+        {
+            h.Username("guest");
+            h.Password("guest");
+        });
+
+        // Configure retry policy
+        cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+
+        // CRITICAL: Manually configure saga endpoint to ensure events reach state machine
+        cfg.ReceiveEndpoint("transfer-saga", e =>
+        {
+            e.ConfigureSaga<TransferSagaState>(context);
+        });
+
+        // Auto-configure endpoints for all registered consumers and sagas
+        cfg.ConfigureEndpoints(context);
+    });
 });
 
 // JWT Authentication

@@ -66,12 +66,15 @@ public class TransfersController : ControllerBase
         _logger.LogInformation("Transfer initiated: {TransferId}, Amount: {Amount} {Currency}", 
             transfer.Id, transfer.Amount, transfer.Currency);
 
-        // Start SAGA: Request debit
-        await _publishEndpoint.Publish<IDebitAccountRequested>(new
+        // Start SAGA: Publish transfer initiated event to trigger state machine
+        await _publishEndpoint.Publish<ITransferInitiated>(new
         {
             TransferId = transfer.Id,
-            AccountId = transfer.FromAccountId,
-            transfer.Amount
+            FromAccountId = transfer.FromAccountId,
+            ToAccountId = transfer.ToAccountId,
+            Amount = transfer.Amount,
+            Currency = transfer.Currency,
+            InitiatedBy = userId
         });
 
         return Ok(new
