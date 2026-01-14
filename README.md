@@ -210,21 +210,108 @@ Microbank/
 
 ## SAGA Pattern Implementation
 
-The Transfer Service acts as a SAGA orchestrator:
+The Transfer Service implements a **centralized orchestration-based Saga pattern** using MassTransit State Machine to manage distributed transactions across Account service boundaries.
 
-**Happy Path:**
-1. Transfer initiated → `Pending`
-2. Debit sender account → `DebitSuccessful`
-3. Credit receiver account → `Completed`
-4. Notification sent
+### Architecture: Orchestration vs Choreography
 
-**Compensation Path:**
-1. Transfer initiated → `Pending`
-2. Debit sender account → `DebitSuccessful`
-3. Credit fails (e.g., invalid account)
-4. Compensate: Refund sender
-5. Transfer marked as `Failed`
-6. Failure notification sent
+**Orchestration-based (Current):**
+- ✅ Centralized state machine in Transfer service
+- ✅ All orchestration logic in `TransferStateMachine`
+- ✅ Saga state persisted to database (`TransferSagaStates` table)
+- ✅ Easy to monitor, debug, and extend
+- ✅ Automatic compensation on failures
+
+**Previous Choreography approach:**
+- Services communicated directly via events
+- No central state tracking
+- Logic scattered across event handlers
+
+### State Machine Flow
+
+```
+[Transfer Initiated] 
+    ↓
+[Debiting] → Publish IDebitAccountRequested
+    ↓
+    ├─→ [Success: AccountDebited] 
+    │       ↓
+    │   [Crediting] → Publish ICreditAccountRequested
+    │       ↓
+    │       ├─→ [Success: AccountCredited] → ✅ COMPLETED
+    │       │
+    │       └─→ [Failure: Credit Failed] 
+    │               ↓
+    │           [Compensating] → Refund sender
+    │               ↓
+    │           ❌ FAILED (with compensation)
+    │
+    └─→ [Failure: Debit Failed] → ❌ FAILED (no compensation needed)
+```
+
+### Saga States
+
+| State | Description |
+|-------|-------------|
+| `Initiated` | Transfer created, ready to debit sender account |
+| `Debiting` | Waiting for debit confirmation from Account service |
+| `Debited` | Sender debited successfully, ready to credit receiver |
+| `Crediting` | Waiting for credit confirmation from Account service |
+| `Completed` | Transfer successful - both debit and credit completed ✅ |
+| `Compensating` | Rolling back - refunding sender after credit failure |
+| `Failed` | Transfer failed (with or without compensation) ❌ |
+
+### Happy Path Flow
+
+1. **User initiates transfer** → Saga state: `Initiated`
+2. **Saga requests debit** → Publishes `IDebitAccountRequested` → State: `Debiting`
+3. **Account service debits sender** → Publishes `IAccountDebited` → State: `Debited`
+4. **Saga requests credit** → Publishes `ICreditAccountRequested` → State: `Crediting`
+5. **Account service credits receiver** → Publishes `IAccountCredited` → State: `Completed` ✅
+6. **Notification sent** → Transfer complete
+
+### Compensation Path (Failure Scenario)
+
+1. **User initiates transfer** → Saga state: `Initiated`
+2. **Saga requests debit** → State: `Debiting`
+3. **Sender account debited** → State: `Debited`
+4. **Saga requests credit** → State: `Crediting`
+5. **Credit fails** (e.g., receiver account closed) → Publishes `IAccountOperationFailed`
+6. **Saga triggers compensation** → Publishes `ICompensateDebit` → State: `Compensating`
+7. **Account service refunds sender** → Money returned to original account
+8. **Transfer marked as failed** → State: `Failed` ❌
+9. **Failure notification sent**
+
+### Database Persistence
+
+The saga state is persisted in the `TransferSagaStates` table:
+
+```sql
+-- View all saga states
+SELECT 
+    "CorrelationId",
+    "CurrentState",
+    "TransferId",
+    "Amount",
+    "InitiatedAt",
+    "CompletedAt",
+    "FailureReason"
+FROM "TransferSagaStates"
+ORDER BY "InitiatedAt" DESC;
+
+-- Find stuck/pending transfers
+SELECT * FROM "TransferSagaStates" 
+WHERE "CurrentState" NOT IN ('Completed', 'Failed')
+AND "InitiatedAt" < NOW() - INTERVAL '5 minutes';
+```
+
+### Key Features
+
+- **Automatic Compensation**: If credit fails after successful debit, saga automatically refunds sender
+- **State Persistence**: Survives service restarts - saga continues from last known state
+- **Idempotency**: Inbox/Outbox pattern ensures exactly-once message processing
+- **Observability**: Query database to see exact state of any transfer
+- **Retry Policies**: Configured with 3 retries at 5-second intervals
+- **Concurrency Control**: Pessimistic locking prevents race conditions
 
 ## API Documentation
 
