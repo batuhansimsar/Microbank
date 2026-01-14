@@ -29,8 +29,8 @@ public static class ServiceCollectionExtensions
                     h.Password("guest");
                 });
 
-                // Configure retry policy
-                cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                // Configure retry policy (with interval for concurrency scenarios)
+                cfg.UseMessageRetry(r => r.Interval(5, TimeSpan.FromMilliseconds(200)));
 
                 // Configure error handling
                 cfg.UseInMemoryOutbox();

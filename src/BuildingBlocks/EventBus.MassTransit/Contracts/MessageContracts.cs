@@ -1,6 +1,19 @@
 namespace EventBus.MassTransit.Contracts;
 
 /// <summary>
+/// Event to initiate a transfer saga (sent by Transfer Service API to Saga State Machine)
+/// </summary>
+public interface ITransferInitiated
+{
+    Guid TransferId { get; }
+    Guid FromAccountId { get; }
+    Guid ToAccountId { get; }
+    decimal Amount { get; }
+    string Currency { get; }
+    Guid InitiatedBy { get; }
+}
+
+/// <summary>
 /// Request to debit an account (sent by Transfer Service to Account Service)
 /// </summary>
 public interface IDebitAccountRequested
@@ -84,3 +97,4 @@ public interface ITransferFailed
     decimal Amount { get; }
     string Reason { get; }
 }
+
