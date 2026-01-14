@@ -114,6 +114,20 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
+        // 3️⃣ IDEMPOTENCY: Check if this transfer already credited
+        var existingCredit = await dbContext.Transactions
+            .FirstOrDefaultAsync(t => 
+                t.TransferId == message.TransferId && 
+                t.Type == TransactionType.Credit &&
+                t.AccountId == message.AccountId);
+                
+        if (existingCredit != null)
+        {
+            _logger.LogInformation("Transfer {TransferId} already credited to account {AccountId}, skipping", 
+                message.TransferId, message.AccountId);
+            return;
+        }
+
         var account = await dbContext.Accounts.FindAsync(message.AccountId);
         
         if (account == null)
@@ -144,7 +158,17 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
         };
 
         dbContext.Transactions.Add(transaction);
-        await dbContext.SaveChangesAsync();
+        
+        try
+        {
+            await dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // 1️⃣ OPTIMISTIC CONCURRENCY: Let MassTransit retry handle this
+            _logger.LogWarning("Concurrency conflict while crediting account {AccountId}, will retry", message.AccountId);
+            throw; // Rethrow for MassTransit retry
+        }
 
         _logger.LogInformation("Account credited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
 
