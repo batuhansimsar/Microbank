@@ -1,0 +1,10 @@
+# Load Tests Directory
+
+results/
+*.log
+test-data.json
+node_modules/
+package-lock.json
+*.json
+!package.json
+!config.js
