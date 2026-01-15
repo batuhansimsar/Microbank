@@ -13,6 +13,7 @@ public class TransferDbContext : DbContext
 
     public DbSet<MoneyTransfer> Transfers { get; set; }
     public DbSet<TransferSagaState> TransferSagaStates { get; set; }
+    public DbSet<IdempotentRequest> IdempotentRequests { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +50,16 @@ public class TransferDbContext : DbContext
             entity.Property(e => e.FailedAt).HasColumnType("timestamp without time zone");
             entity.Property(e => e.CompensationStartedAt).HasColumnType("timestamp without time zone");
             entity.Property(e => e.CompensationCompletedAt).HasColumnType("timestamp without time zone");
+        });
+
+        // Configure Idempotent Requests
+        modelBuilder.Entity<IdempotentRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.IdempotencyKey).IsUnique();
+            entity.Property(e => e.IdempotencyKey).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone");
         });
     }
 }

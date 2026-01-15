@@ -18,17 +18,20 @@ public class TransfersController : ControllerBase
     private readonly IPublishEndpoint _publishEndpoint;
     private readonly ILogger<TransfersController> _logger;
     private readonly IValidator<TransferRequest> _transferValidator;
+    private readonly Services.IIdempotencyService _idempotencyService;
 
     public TransfersController(
         TransferDbContext context,
         IPublishEndpoint publishEndpoint,
         ILogger<TransfersController> logger,
-        IValidator<TransferRequest> transferValidator)
+        IValidator<TransferRequest> transferValidator,
+        Services.IIdempotencyService idempotencyService)
     {
         _context = context;
         _publishEndpoint = publishEndpoint;
         _logger = logger;
         _transferValidator = transferValidator;
+        _idempotencyService = idempotencyService;
     }
 
     [HttpPost]
@@ -45,6 +48,19 @@ public class TransfersController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
         {
             return Unauthorized(new { error = "Invalid authentication token" });
+        }
+
+        // IDEMPOTENCY: Check for Idempotency-Key header
+        var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+        
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            var cachedResponse = await _idempotencyService.GetCachedResponseAsync(idempotencyKey);
+            if (cachedResponse != null)
+            {
+                _logger.LogInformation("Returning cached response for idempotency key: {Key}", idempotencyKey);
+                return Ok(System.Text.Json.JsonSerializer.Deserialize<object>(cachedResponse));
+            }
         }
 
         // Create transfer record (SAGA Step 1)
@@ -77,14 +93,23 @@ public class TransfersController : ControllerBase
             InitiatedBy = userId
         });
 
-        return Ok(new
+        // Prepare response object
+        var response = new
         {
             transferId = transfer.Id,
             status = transfer.Status.ToString(),
             amount = transfer.Amount,
             currency = transfer.Currency,
             initiatedAt = transfer.InitiatedAt
-        });
+        };
+
+        // IDEMPOTENCY: Cache response if key provided
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            await _idempotencyService.CacheResponseAsync(idempotencyKey, response);
+        }
+
+        return Ok(response);
     }
 
     [HttpGet("{id}")]

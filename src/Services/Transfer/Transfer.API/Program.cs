@@ -89,6 +89,9 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// Register Idempotency Service
+builder.Services.AddScoped<Transfer.API.Services.IIdempotencyService, Transfer.API.Services.IdempotencyService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
