@@ -8,6 +8,7 @@ using EventBus.MassTransit;
 using Account.API.Data;
 using Account.API.EventHandlers;
 using Account.API.Middleware;
+using StackExchange.Redis;
 
 // Fix PostgreSQL DateTime UTC issue
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -66,6 +67,15 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+
+// Redis for Distributed Locking
+var redisConnection = ConnectionMultiplexer.Connect(
+    builder.Configuration.GetConnectionString("Redis") ?? "redis:6379,abortConnect=false"
+);
+builder.Services.AddSingleton<IConnectionMultiplexer>(redisConnection);
+
+// Register custom distributed lock service
+builder.Services.AddScoped<Account.API.Services.IDistributedLockService, Account.API.Services.RedisDistributedLockService>();
 
 var app = builder.Build();
 

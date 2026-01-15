@@ -31,60 +31,76 @@ public class DebitAccountRequestedConsumer : IConsumer<IDebitAccountRequested>
         
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
+        var lockService = scope.ServiceProvider.GetRequiredService<Services.IDistributedLockService>();
 
-        var account = await dbContext.Accounts.FindAsync(message.AccountId);
-        
-        if (account == null)
+        // 🔒 CRITICAL: Acquire distributed lock to prevent race conditions
+        var lockKey = $"account:{message.AccountId}";
+        await using (var redLock = await lockService.AcquireLockAsync(lockKey, TimeSpan.FromSeconds(30)))
         {
-            _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
-            await _publishEndpoint.Publish<IAccountOperationFailed>(new
+            if (redLock == null)
+            {
+                _logger.LogWarning("Failed to acquire lock for account: {AccountId}", message.AccountId);
+                // Retry via MassTransit
+                throw new InvalidOperationException("Could not acquire account lock");
+            }
+
+            _logger.LogDebug("Lock acquired for account: {AccountId}", message.AccountId);
+
+            // Re-fetch account within lock to ensure fresh data
+            var account = await dbContext.Accounts.FindAsync(message.AccountId);
+            
+            if (account == null)
+            {
+                _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
+                await _publishEndpoint.Publish<IAccountOperationFailed>(new
+                {
+                    message.TransferId,
+                    message.AccountId,
+                    Reason = "Account not found",
+                    OperationType = "Debit"
+                });
+                return;
+            }
+
+            if (account.Balance < message.Amount)
+            {
+                _logger.LogWarning("Insufficient balance for account: {AccountId}", message.AccountId);
+                await _publishEndpoint.Publish<IAccountOperationFailed>(new
+                {
+                    message.TransferId,
+                    message.AccountId,
+                    Reason = "Insufficient balance",
+                    OperationType = "Debit"
+                });
+                return;
+            }
+
+            // Debit the account (protected by lock)
+            account.Balance -= message.Amount;
+            
+            var transaction = new Transaction
+            {
+                Id = Guid.NewGuid(),
+                AccountId = account.Id,
+                Type = TransactionType.Debit,
+                Amount = message.Amount,
+                TransferId = message.TransferId,
+                Description = $"Transfer debit - Transfer ID: {message.TransferId}",
+                Timestamp = DateTime.UtcNow
+            };
+
+            dbContext.Transactions.Add(transaction);
+            await dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
+
+            await _publishEndpoint.Publish<IAccountDebited>(new
             {
                 message.TransferId,
                 message.AccountId,
-                Reason = "Account not found",
-                OperationType = "Debit"
+                message.Amount
             });
-            return;
-        }
-
-        if (account.Balance < message.Amount)
-        {
-            _logger.LogWarning("Insufficient balance for account: {AccountId}", message.AccountId);
-            await _publishEndpoint.Publish<IAccountOperationFailed>(new
-            {
-                message.TransferId,
-                message.AccountId,
-                Reason = "Insufficient balance",
-                OperationType = "Debit"
-            });
-            return;
-        }
-
-        // Debit the account
-        account.Balance -= message.Amount;
-        
-        var transaction = new Transaction
-        {
-            Id = Guid.NewGuid(),
-            AccountId = account.Id,
-            Type = TransactionType.Debit,
-            Amount = message.Amount,
-            TransferId = message.TransferId,
-            Description = $"Transfer debit - Transfer ID: {message.TransferId}",
-            Timestamp = DateTime.UtcNow
-        };
-
-        dbContext.Transactions.Add(transaction);
-        await dbContext.SaveChangesAsync();
-
-        _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
-
-        await _publishEndpoint.Publish<IAccountDebited>(new
-        {
-            message.TransferId,
-            message.AccountId,
-            message.Amount
-        });
+        } // Lock automatically released here
     }
 }
 

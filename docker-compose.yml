@@ -79,6 +79,20 @@ services:
       timeout: 10s
       retries: 5
 
+  # Redis for Distributed Locking
+  redis:
+    image: redis:7-alpine
+    container_name: microbank-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - microbank-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # Identity Service
   identity-api:
     build:
