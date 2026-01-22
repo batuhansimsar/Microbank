@@ -85,6 +85,8 @@ services:
     container_name: microbank-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - microbank-network
     healthcheck:
@@ -102,6 +104,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=identity-db;Port=5432;Database=microbank_identity;Username=postgres;Password=postgres
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
       - JwtSettings__Issuer=MicrobankIdentity
       - JwtSettings__Audience=MicrobankServices
@@ -110,6 +113,8 @@ services:
       - "5001:80"
     depends_on:
       identity-db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - microbank-network
@@ -124,6 +129,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=account-db;Port=5432;Database=microbank_account;Username=postgres;Password=postgres
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - RabbitMQ__Host=rabbitmq
       - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
       - JwtSettings__Issuer=MicrobankIdentity
@@ -135,6 +141,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - microbank-network
     restart: on-failure
@@ -148,6 +156,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=transfer-db;Port=5432;Database=microbank_transfer;Username=postgres;Password=postgres
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - RabbitMQ__Host=rabbitmq
       - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
       - JwtSettings__Issuer=MicrobankIdentity
@@ -159,6 +168,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - microbank-network
     restart: on-failure
@@ -209,3 +220,4 @@ volumes:
   account-db-data:
   transfer-db-data:
   rabbitmq-data:
+  redis-data:

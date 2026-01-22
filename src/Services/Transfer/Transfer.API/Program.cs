@@ -110,10 +110,13 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Apply migrations
+// NOTE: Migrations disabled because we use InMemory Saga repository
+// The Saga state is not persisted to database, only Transfer entities are
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
-    db.Database.Migrate();
+    // Only create/migrate the Transfers table, ignore Saga-related tables
+    db.Database.EnsureCreated(); // Simple alternative to Migrate() for demo purposes
 }
 
 app.Run();
