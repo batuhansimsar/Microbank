@@ -105,7 +105,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=identity-db;Port=5432;Database=microbank_identity;Username=postgres;Password=postgres
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
-      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY}
       - JwtSettings__Issuer=MicrobankIdentity
       - JwtSettings__Audience=MicrobankServices
       - JwtSettings__ExpirationMinutes=60
@@ -131,7 +131,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=account-db;Port=5432;Database=microbank_account;Username=postgres;Password=postgres
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - RabbitMQ__Host=rabbitmq
-      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY}
       - JwtSettings__Issuer=MicrobankIdentity
       - JwtSettings__Audience=MicrobankServices
     ports:
@@ -158,7 +158,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=transfer-db;Port=5432;Database=microbank_transfer;Username=postgres;Password=postgres
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - RabbitMQ__Host=rabbitmq
-      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY}
       - JwtSettings__Issuer=MicrobankIdentity
       - JwtSettings__Audience=MicrobankServices
     ports:
@@ -198,7 +198,7 @@ services:
     container_name: microbank-gateway-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - JwtSettings__SecretKey=YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY}
       - JwtSettings__Issuer=MicrobankIdentity
       - JwtSettings__Audience=MicrobankServices
     ports:

@@ -21,7 +21,7 @@ Value: YOUR_REDIS_ENDPOINT:PORT,user=default,password=YOUR_REDIS_PASSWORD,ssl=Tr
 ### 2. JWT Secret (GİZLİ!)
 ```
 Name:  JwtSettings__SecretKey
-Value: YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+Value: YOUR_JWT_SECRET_KEY_HERE (minimum 32 karakter)
 ```
 
 ### 3. Database (Azure PostgreSQL kullanıyorsan)
@@ -43,7 +43,7 @@ Value: YOUR_REDIS_ENDPOINT:PORT,user=default,password=YOUR_REDIS_PASSWORD,ssl=Tr
 ### 2. JWT Secret (Identity ile AYNI olmalı!)
 ```
 Name:  JwtSettings__SecretKey
-Value: YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+Value: YOUR_JWT_SECRET_KEY_HERE (minimum 32 karakter)
 ```
 
 ### 3. Database
@@ -73,7 +73,7 @@ Value: YOUR_REDIS_ENDPOINT:PORT,user=default,password=YOUR_REDIS_PASSWORD,ssl=Tr
 ### 2. JWT Secret (Diğerleriyle AYNI!)
 ```
 Name:  JwtSettings__SecretKey
-Value: YourSuperSecretKeyThatIsAtLeast32CharactersLong!
+Value: YOUR_JWT_SECRET_KEY_HERE (minimum 32 karakter)
 ```
 
 ### 3. Database
