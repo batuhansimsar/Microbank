@@ -1,0 +1,55 @@
+name: Build & Push Microbank to ACR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ secrets.AZURE_REGISTRY_SERVER }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - service: identity
+            dockerfile: src/Services/Identity/Dockerfile
+            image: microbank-identity
+          - service: account
+            dockerfile: src/Services/Account/Dockerfile
+            image: microbank-account
+          - service: transfer
+            dockerfile: src/Services/Transfer/Dockerfile
+            image: microbank-transfer
+          - service: notification
+            dockerfile: src/Services/Notification/Dockerfile
+            image: microbank-notification
+          - service: gateway
+            dockerfile: src/ApiGateways/Dockerfile
+            image: microbank-gateway
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.AZURE_REGISTRY_USERNAME }}
+          password: ${{ secrets.AZURE_REGISTRY_PASSWORD }}
+
+      - name: Build and Push ${{ matrix.service }}
+        run: |
+          docker build \
+            -f ${{ matrix.dockerfile }} \
+            -t ${{ env.REGISTRY }}/${{ matrix.image }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ matrix.image }}:latest \
+            .
+          docker push ${{ env.REGISTRY }}/${{ matrix.image }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ matrix.image }}:latest
