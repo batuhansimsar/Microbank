@@ -16,16 +16,6 @@ var builder = WebApplication.CreateBuilder(args);
 // Configure Serilog
 builder.Host.UseCustomSerilog("Identity.API");
 
-// DEBUG: Print configuration to diagnose Docker issue
-Console.WriteLine("========== CONFIGURATION DEBUG ==========");
-Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
-Console.WriteLine($"Connection String from Config: {builder.Configuration.GetConnectionString("DefaultConnection")}");
-Console.WriteLine($"JWT SecretKey exists: {!string.IsNullOrEmpty(builder.Configuration["JwtSettings:SecretKey"])}");
-Console.WriteLine($"Environment Variables:");
-Console.WriteLine($"  ConnectionStrings__DefaultConnection: {Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")}");
-Console.WriteLine($"  RabbitMQ__Host: {Environment.GetEnvironmentVariable("RabbitMQ__Host")}");
-Console.WriteLine("=========================================");
-
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -40,7 +30,6 @@ builder.Services.AddProblemDetails();
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-Console.WriteLine($"Using Connection String: {connectionString}");
 builder.Services.AddDbContext<IdentityDbContext>(options =>
     options.UseNpgsql(connectionString));
 
