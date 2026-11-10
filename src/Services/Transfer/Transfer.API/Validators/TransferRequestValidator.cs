@@ -25,6 +25,6 @@ public class TransferRequestValidator : AbstractValidator<TransferRequest>
             .When(x => !string.IsNullOrEmpty(x.Currency));
     }
     
-    private bool BeValidCurrency(string currency) 
+    private bool BeValidCurrency(string? currency)
         => ValidCurrencies.Contains(currency?.ToUpper());
 }

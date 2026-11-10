@@ -56,6 +56,7 @@ public class TransferStateMachine : MassTransitStateMachine<TransferSagaState>
                 {
                     TransferId = context.Saga.TransferId,
                     AccountId = context.Saga.FromAccountId,
+                    InitiatedBy = context.Saga.InitiatedBy,
                     Amount = context.Saga.Amount
                 }))
                 .Then(context =>

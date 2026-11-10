@@ -45,20 +45,24 @@ public class TransfersController : ControllerBase
         }
 
         var userIdClaim = User.FindFirst("userId")?.Value;
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId) || userId == Guid.Empty)
         {
             return Unauthorized(new { error = "Invalid authentication token" });
         }
 
-        // IDEMPOTENCY: Check for Idempotency-Key header
-        var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
-        
-        if (!string.IsNullOrEmpty(idempotencyKey))
+        var requestKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+        var idempotencyKey = string.IsNullOrEmpty(requestKey) ? null :
+            $"{userId:N}:{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(requestKey)))}";
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        if (idempotencyKey != null)
         {
+            // Serialize requests sharing a key across service instances until commit.
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtextextended({idempotencyKey}, 0))");
             var cachedResponse = await _idempotencyService.GetCachedResponseAsync(idempotencyKey);
             if (cachedResponse != null)
             {
-                _logger.LogInformation("Returning cached response for idempotency key: {Key}", idempotencyKey);
                 return Ok(System.Text.Json.JsonSerializer.Deserialize<object>(cachedResponse));
             }
         }
@@ -109,6 +113,11 @@ public class TransfersController : ControllerBase
             await _idempotencyService.CacheResponseAsync(idempotencyKey, response);
         }
 
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        _logger.LogInformation("Transfer initiated: {TransferId}, Amount: {Amount} {Currency}",
+            transfer.Id, transfer.Amount, transfer.Currency);
         return Ok(response);
     }
 

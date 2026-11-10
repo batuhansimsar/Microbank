@@ -54,16 +54,9 @@ public class IdempotencyService : IIdempotencyService
             ExpiresAt = DateTime.UtcNow.Add(expiryTime)
         };
 
-        try
-        {
-            _context.IdempotentRequests.Add(request);
-            await _context.SaveChangesAsync();
-            _logger.LogInformation("Cached response for idempotency key: {Key}", idempotencyKey);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("unique") == true)
-        {
-            // Race condition - another request already cached this key
-            _logger.LogWarning("Idempotency key already exists: {Key}", idempotencyKey);
-        }
+        await _context.IdempotentRequests
+            .Where(i => i.IdempotencyKey == idempotencyKey && i.ExpiresAt <= request.CreatedAt)
+            .ExecuteDeleteAsync();
+        _context.IdempotentRequests.Add(request);
     }
 }

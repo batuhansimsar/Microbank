@@ -60,9 +60,7 @@ public class AccountsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetAccount(Guid id)
     {
-        var account = await _context.Accounts
-            .Include(a => a.Transactions)
-            .FirstOrDefaultAsync(a => a.Id == id);
+        var account = await FindOwnedAccountAsync(id);
 
         if (account == null)
         {
@@ -112,7 +110,7 @@ public class AccountsController : ControllerBase
     [HttpGet("{id}/balance")]
     public async Task<IActionResult> GetBalance(Guid id)
     {
-        var account = await _context.Accounts.FindAsync(id);
+        var account = await FindOwnedAccountAsync(id);
         
         if (account == null)
         {
@@ -125,12 +123,34 @@ public class AccountsController : ControllerBase
     [HttpGet("{id}/transactions")]
     public async Task<IActionResult> GetTransactions(Guid id)
     {
+        if (await FindOwnedAccountAsync(id) == null)
+        {
+            return NotFound(new { error = "Account not found" });
+        }
+
         var transactions = await _context.Transactions
             .Where(t => t.AccountId == id)
             .OrderByDescending(t => t.Timestamp)
+            .Select(t => new
+            {
+                t.Id,
+                t.AccountId,
+                t.Type,
+                t.Amount,
+                t.TransferId,
+                t.Description,
+                t.Timestamp
+            })
             .ToListAsync();
 
         return Ok(transactions);
+    }
+
+    private Task<BankAccount?> FindOwnedAccountAsync(Guid id)
+    {
+        return Guid.TryParse(User.FindFirst("userId")?.Value, out var userId)
+            ? _context.Accounts.FirstOrDefaultAsync(account => account.Id == id && account.UserId == userId)
+            : Task.FromResult<BankAccount?>(null);
     }
 
     private string GenerateAccountNumber()

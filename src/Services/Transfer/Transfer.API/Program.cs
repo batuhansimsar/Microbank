@@ -6,6 +6,7 @@ using FluentValidation;
 using Common.Logging;
 using MassTransit;
 using Transfer.API.Data;
+using Transfer.API.EventHandlers;
 using Transfer.API.Middleware;
 using Transfer.Domain.Saga;
 
@@ -39,6 +40,14 @@ builder.Services.AddMassTransit(x =>
     // Register Saga State Machine with InMemory persistence (for testing/demo)
     x.AddSagaStateMachine<TransferStateMachine, TransferSagaState>()
         .InMemoryRepository();
+
+    x.AddConsumer<TransferOutcomeConsumer>();
+
+    x.AddEntityFrameworkOutbox<TransferDbContext>(outbox =>
+    {
+        outbox.UsePostgres();
+        outbox.UseBusOutbox();
+    });
 
     x.UsingRabbitMq((context, cfg) =>
     {
@@ -109,14 +118,20 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Apply migrations
-// NOTE: Migrations disabled because we use InMemory Saga repository
-// The Saga state is not persisted to database, only Transfer entities are
+// Existing deployments use EnsureCreated and have no migration history.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
-    // Only create/migrate the Transfers table, ignore Saga-related tables
-    db.Database.EnsureCreated(); // Simple alternative to Migrate() for demo purposes
+    await db.Database.EnsureCreatedAsync();
+
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(1829655395)");
+    using var script = typeof(TransferDbContext).Assembly
+        .GetManifestResourceStream("Transfer.API.Data.CreateOutbox.sql")
+        ?? throw new InvalidOperationException("Outbox schema script is missing");
+    using var reader = new StreamReader(script);
+    await db.Database.ExecuteSqlRawAsync(await reader.ReadToEndAsync());
+    await transaction.CommitAsync();
 }
 
 app.Run();

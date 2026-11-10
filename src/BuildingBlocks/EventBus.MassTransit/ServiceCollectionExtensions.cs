@@ -33,7 +33,7 @@ public static class ServiceCollectionExtensions
                 cfg.UseMessageRetry(r => r.Interval(5, TimeSpan.FromMilliseconds(200)));
 
                 // Configure error handling
-                cfg.UseInMemoryOutbox();
+                cfg.UseInMemoryOutbox(context);
 
                 // Auto-configure endpoints for all registered consumers
                 cfg.ConfigureEndpoints(context);

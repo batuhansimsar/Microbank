@@ -12,6 +12,13 @@ public class AccountDbContext : DbContext
     public DbSet<BankAccount> Accounts { get; set; }
     public DbSet<Transaction> Transactions { get; set; }
 
+    public async Task<BankAccount?> LockAccountAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"Accounts\" WHERE \"Id\" = {id} FOR UPDATE", cancellationToken);
+        return await Accounts.FindAsync(new object[] { id }, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

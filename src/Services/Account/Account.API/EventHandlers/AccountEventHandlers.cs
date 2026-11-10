@@ -31,76 +31,76 @@ public class DebitAccountRequestedConsumer : IConsumer<IDebitAccountRequested>
         
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
-        var lockService = scope.ServiceProvider.GetRequiredService<Services.IDistributedLockService>();
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(context.CancellationToken);
+        var account = await dbContext.LockAccountAsync(message.AccountId, context.CancellationToken);
 
-        // 🔒 CRITICAL: Acquire distributed lock to prevent race conditions
-        var lockKey = $"account:{message.AccountId}";
-        await using (var redLock = await lockService.AcquireLockAsync(lockKey, TimeSpan.FromSeconds(30)))
+        if (account == null || message.InitiatedBy == Guid.Empty || account.UserId != message.InitiatedBy)
         {
-            if (redLock == null)
+            _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
+            await _publishEndpoint.Publish<IAccountOperationFailed>(new
             {
-                _logger.LogWarning("Failed to acquire lock for account: {AccountId}", message.AccountId);
-                // Retry via MassTransit
-                throw new InvalidOperationException("Could not acquire account lock");
-            }
+                message.TransferId,
+                message.AccountId,
+                Reason = "Account not found",
+                OperationType = "Debit"
+            });
+            return;
+        }
 
-            _logger.LogDebug("Lock acquired for account: {AccountId}", message.AccountId);
+        var alreadyDebited = await dbContext.Transactions.AnyAsync(t =>
+            t.AccountId == message.AccountId && t.TransferId == message.TransferId &&
+            t.Type == TransactionType.Debit, context.CancellationToken);
 
-            // Re-fetch account within lock to ensure fresh data
-            var account = await dbContext.Accounts.FindAsync(message.AccountId);
-            
-            if (account == null)
-            {
-                _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
-                await _publishEndpoint.Publish<IAccountOperationFailed>(new
-                {
-                    message.TransferId,
-                    message.AccountId,
-                    Reason = "Account not found",
-                    OperationType = "Debit"
-                });
-                return;
-            }
-
-            if (account.Balance < message.Amount)
-            {
-                _logger.LogWarning("Insufficient balance for account: {AccountId}", message.AccountId);
-                await _publishEndpoint.Publish<IAccountOperationFailed>(new
-                {
-                    message.TransferId,
-                    message.AccountId,
-                    Reason = "Insufficient balance",
-                    OperationType = "Debit"
-                });
-                return;
-            }
-
-            // Debit the account (protected by lock)
-            account.Balance -= message.Amount;
-            
-            var transaction = new Transaction
-            {
-                Id = Guid.NewGuid(),
-                AccountId = account.Id,
-                Type = TransactionType.Debit,
-                Amount = message.Amount,
-                TransferId = message.TransferId,
-                Description = $"Transfer debit - Transfer ID: {message.TransferId}",
-                Timestamp = DateTime.UtcNow
-            };
-
-            dbContext.Transactions.Add(transaction);
-            await dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
-
+        if (alreadyDebited)
+        {
             await _publishEndpoint.Publish<IAccountDebited>(new
             {
                 message.TransferId,
                 message.AccountId,
                 message.Amount
             });
-        } // Lock automatically released here
+            return;
+        }
+
+        if (account.Balance < message.Amount)
+        {
+            _logger.LogWarning("Insufficient balance for account: {AccountId}", message.AccountId);
+            await _publishEndpoint.Publish<IAccountOperationFailed>(new
+            {
+                message.TransferId,
+                message.AccountId,
+                Reason = "Insufficient balance",
+                OperationType = "Debit"
+            });
+            return;
+        }
+
+        // Debit the account (protected by lock)
+        account.Balance -= message.Amount;
+
+        var entry = new Transaction
+        {
+            Id = Guid.NewGuid(),
+            AccountId = account.Id,
+            Type = TransactionType.Debit,
+            Amount = message.Amount,
+            TransferId = message.TransferId,
+            Description = $"Transfer debit - Transfer ID: {message.TransferId}",
+            Timestamp = DateTime.UtcNow
+        };
+
+        dbContext.Transactions.Add(entry);
+        await dbContext.SaveChangesAsync(context.CancellationToken);
+        await transaction.CommitAsync(context.CancellationToken);
+
+        _logger.LogInformation("Account debited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
+
+        await _publishEndpoint.Publish<IAccountDebited>(new
+        {
+            message.TransferId,
+            message.AccountId,
+            message.Amount
+        });
     }
 }
 
@@ -130,7 +130,10 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
-        // 3️⃣ IDEMPOTENCY: Check if this transfer already credited
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(context.CancellationToken);
+        var account = await dbContext.LockAccountAsync(message.AccountId, context.CancellationToken);
+
+        // Check under the account lock so concurrent deliveries cannot both credit it.
         var existingCredit = await dbContext.Transactions
             .FirstOrDefaultAsync(t => 
                 t.TransferId == message.TransferId && 
@@ -139,13 +142,15 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
                 
         if (existingCredit != null)
         {
-            _logger.LogInformation("Transfer {TransferId} already credited to account {AccountId}, skipping", 
-                message.TransferId, message.AccountId);
+            await _publishEndpoint.Publish<IAccountCredited>(new
+            {
+                message.TransferId,
+                message.AccountId,
+                message.Amount
+            });
             return;
         }
 
-        var account = await dbContext.Accounts.FindAsync(message.AccountId);
-        
         if (account == null)
         {
             _logger.LogWarning("Account not found: {AccountId}", message.AccountId);
@@ -162,7 +167,7 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
         // Credit the account
         account.Balance += message.Amount;
         
-        var transaction = new Transaction
+        var entry = new Transaction
         {
             Id = Guid.NewGuid(),
             AccountId = account.Id,
@@ -173,18 +178,10 @@ public class CreditAccountRequestedConsumer : IConsumer<ICreditAccountRequested>
             Timestamp = DateTime.UtcNow
         };
 
-        dbContext.Transactions.Add(transaction);
+        dbContext.Transactions.Add(entry);
         
-        try
-        {
-            await dbContext.SaveChangesAsync();
-        }
-        catch (DbUpdateConcurrencyException ex)
-        {
-            // 1️⃣ OPTIMISTIC CONCURRENCY: Let MassTransit retry handle this
-            _logger.LogWarning("Concurrency conflict while crediting account {AccountId}, will retry", message.AccountId);
-            throw; // Rethrow for MassTransit retry
-        }
+        await dbContext.SaveChangesAsync(context.CancellationToken);
+        await transaction.CommitAsync(context.CancellationToken);
 
         _logger.LogInformation("Account credited: {AccountId}, Amount: {Amount}", account.Id, message.Amount);
 
@@ -220,14 +217,18 @@ public class CompensateDebitConsumer : IConsumer<ICompensateDebit>
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
 
-        var account = await dbContext.Accounts.FindAsync(message.AccountId);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(context.CancellationToken);
+        var account = await dbContext.LockAccountAsync(message.AccountId, context.CancellationToken);
+        var alreadyRefunded = await dbContext.Transactions.AnyAsync(t =>
+            t.AccountId == message.AccountId && t.TransferId == message.TransferId &&
+            t.Type == TransactionType.Credit, context.CancellationToken);
         
-        if (account != null)
+        if (account != null && !alreadyRefunded)
         {
             // Reverse the debit (credit it back)
             account.Balance += message.Amount;
             
-            var transaction = new Transaction
+            var entry = new Transaction
             {
                 Id = Guid.NewGuid(),
                 AccountId = account.Id,
@@ -238,8 +239,9 @@ public class CompensateDebitConsumer : IConsumer<ICompensateDebit>
                 Timestamp = DateTime.UtcNow
             };
 
-            dbContext.Transactions.Add(transaction);
-            await dbContext.SaveChangesAsync();
+            dbContext.Transactions.Add(entry);
+            await dbContext.SaveChangesAsync(context.CancellationToken);
+            await transaction.CommitAsync(context.CancellationToken);
 
             _logger.LogInformation("Debit compensated for account: {AccountId}, Amount: {Amount}", 
                 account.Id, message.Amount);

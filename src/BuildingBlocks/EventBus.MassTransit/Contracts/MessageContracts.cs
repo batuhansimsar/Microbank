@@ -18,6 +18,7 @@ public interface ITransferInitiated
 /// </summary>
 public interface IDebitAccountRequested
 {
+    Guid InitiatedBy { get; }
     Guid TransferId { get; }
     Guid AccountId { get; }
     decimal Amount { get; }
